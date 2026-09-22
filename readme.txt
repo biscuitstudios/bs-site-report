@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.0
+Stable tag: 0.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,20 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.1 =
+* Fix: a throwing Independent Analytics no longer kills the whole payload.
+  Its bundled database layer opens its own connection rather than going
+  through $wpdb, so it can throw where $wpdb would not. Nothing caught it,
+  and one vendor being down meant no report at all rather than a report with
+  one section marked unavailable. The analytics section now degrades to
+  available:false with the reason attached.
+* Fix: the analytics adapter no longer falls back to zeros. An all-zero month
+  is indistinguishable from a real quiet month by the time it reaches a
+  client's page, and a vendor returning an unreadable shape is a schema
+  change rather than a site with no visitors. Both now report unavailable.
+* New: tests/test-analytics.php, 17 assertions against a stubbed vendor that
+  throws, returns garbage, returns null and behaves. Added to CI.
 
 = 0.1.0 =
 * First build. Logs every plugin, theme and core version change as it happens,
