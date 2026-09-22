@@ -3,7 +3,7 @@
  * Plugin Name:       Biscuit Site Report
  * Plugin URI:        https://github.com/biscuitstudios/bs-site-report
  * Description:       Collects the site facts that only exist inside WordPress, logs every update as it happens, and pushes a signed summary to Biscuit. Nothing is shown to site users and nothing is served publicly.
- * Version:           0.1.1
+ * Version:           0.1.2
  * Requires at least: 6.4
  * Requires PHP:      8.2
  * Author:            Biscuit Studios
@@ -38,7 +38,7 @@ defined( 'ABSPATH' ) || exit;
  * anywhere, or the log fills with a failure nobody needs to read.
  */
 
-define( 'BSREP_VERSION', '0.1.1' );
+define( 'BSREP_VERSION', '0.1.2' );
 define( 'BSREP_FILE', __FILE__ );
 define( 'BSREP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BSREP_SLUG', 'bs-site-report' );
