@@ -1,0 +1,108 @@
+name: Release
+
+# Tag a commit to ship it:
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# The tag must match the version in the plugin header. build.sh already refuses
+# to run when the header and the VERSION constant disagree, so the three stay
+# locked together.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      # build.sh zips the checkout directory by its own folder name, so the
+      # REPOSITORY NAME MUST MATCH THE PLUGIN FOLDER SLUG. A repo named
+      # anything else produces a zip that installs to the wrong directory.
+      - name: Check the repo name matches the plugin slug
+        run: |
+          if [ "${{ github.event.repository.name }}" != "bs-site-report" ]; then
+            echo "Repo is named '${{ github.event.repository.name }}' but this plugin's slug is 'bs-site-report'." >&2
+            echo "Rename the repository, or the built zip will install to the wrong folder." >&2
+            exit 1
+          fi
+
+      # Nothing else ties the TAG to the shipped version. build.sh checks the
+      # plugin header against the *_VERSION constant and names the zip from the
+      # header, so a v9.9.9 tag on an unbumped header would publish a Release
+      # called v9.9.9 containing a zip of the OLD version. WordPress reads the
+      # header for update checks, so every site would be offered the old version
+      # and nothing would have errored anywhere.
+      #
+      # The main file is detected rather than named, the same way bin/build.sh
+      # does it, so this block is identical across all four plugins. One of them
+      # has a main file whose name does not match its slug, which a hardcoded
+      # filename would have got wrong.
+      - name: Check the tag matches the plugin header version
+        run: |
+          MAIN="$(grep -lE '^[[:space:]]*\* Plugin Name:' ./*.php | head -1)"
+          if [ -z "$MAIN" ]; then
+            echo "Could not find a plugin main file (no *.php carrying a Plugin Name header)." >&2
+            exit 1
+          fi
+          HEADER="$(grep -m1 -E '^[[:space:]]*\*[[:space:]]*Version:' "$MAIN" \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ -z "$HEADER" ]; then
+            echo "Could not read a Version header out of $MAIN." >&2
+            exit 1
+          fi
+          if [ "$HEADER" != "$TAG" ]; then
+            echo "Tag is '$GITHUB_REF_NAME', so version '$TAG', but $MAIN says '$HEADER'." >&2
+            echo "Bump the header and the VERSION constant to match the tag, or delete the tag and retag." >&2
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME matches $MAIN ($HEADER)."
+
+      - name: Build the plugin zip
+        run: bash bin/build.sh "$RUNNER_TEMP"
+
+      # The release body is what the "View version X details" modal shows on
+      # every client site, so it comes from the changelog written by hand in
+      # readme.txt. GitHub's own notes are generated from merged pull requests,
+      # and this repo commits straight to main, so on every release so far they
+      # amounted to a compare link and nothing else.
+      #
+      # generate_release_notes stays on below. The API pre-pends a supplied body
+      # to the generated notes rather than replacing them, so the changelog
+      # leads and the Full Changelog link still lands underneath it.
+      - name: Build the release notes from readme.txt
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          awk -v want="= $TAG =" '
+            { line = $0; sub( /[[:space:]]+$/, "", line ) }
+            line == want      { copy = 1; next }
+            line ~ /^= [0-9]/ { copy = 0 }
+            copy              { print }
+          ' readme.txt > "$NOTES"
+          # A version bump can land without its changelog entry, and nothing
+          # else would catch it. The release would publish and the modal would
+          # read as blank on every site.
+          if ! grep -q '[^[:space:]]' "$NOTES"; then
+            echo "readme.txt has no '= $TAG =' changelog section, or it is empty." >&2
+            echo "Write the entry before tagging. That section becomes the release body, and the release body is the changelog every site reads." >&2
+            exit 1
+          fi
+          echo "Release notes for $TAG:"
+          cat "$NOTES"
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/*.zip
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: true
