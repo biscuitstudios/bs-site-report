@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="BS Site Report">
+	<title>BS Site Report</title>
+	<!--
+		Tabler Icons "report-analytics", MIT licensed (https://tabler.io/icons).
+		Drawn on a 24x24 grid, scaled 7x and centred on a 256 canvas, which
+		keeps the original stroke weight ratio (2/24 of the glyph box).
+
+		The source icon uses stroke="currentColor". That is no use here: core
+		renders a plugin icon as <img src="...">, so the SVG is its own
+		document with nothing to inherit a colour from, and currentColor would
+		fall back to black. The stroke is set explicitly instead.
+
+		The tile and the glyph transform are identical across the other Biscuit
+		plugins, so the icons read as one set in the plugins list. That is why
+		this is a grey tile with a black stroke and not Biscuit orange, even
+		though brand.md sanctions the orange for icons: the set is the design
+		system here, and one orange tile among five grey ones would read as a
+		different product rather than a consistent one. Same reasoning as the
+		note in bs-security-headers, and it is the reason to check the other
+		icons before drawing a new one rather than going straight to brand.md.
+	-->
+	<rect width="256" height="256" rx="56" fill="#ebebeb" />
+	<g transform="translate(44 44) scale(7)"
+	   fill="none"
+	   stroke="#000000"
+	   stroke-width="2"
+	   stroke-linecap="round"
+	   stroke-linejoin="round">
+		<path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+		<path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2" />
+		<path d="M9 17v-5" />
+		<path d="M12 17v-1" />
+		<path d="M15 17v-3" />
+	</g>
+</svg>

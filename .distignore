@@ -1,0 +1,15 @@
+# Excluded from the deploy artifact. This plugin has no composer or runtime
+# dependencies, so there is no vendor/ to preserve.
+/.distignore
+/.gitignore
+/.git
+.DS_Store
+/docs
+/CLAUDE.md
+/tests
+/bin
+/node_modules
+/.github
+/README.md
+/SECURITY.md
+/.claude
