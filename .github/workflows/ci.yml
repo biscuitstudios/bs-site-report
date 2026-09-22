@@ -31,8 +31,10 @@ jobs:
       - name: Lint every PHP file
         run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 -P4 php -l
       # Plain PHP with hand-rolled stubs, so there is nothing to install.
-      - name: Run the test suite
-        run: php tests/test-updater.php
+      - name: Run the test suites
+        run: |
+          php tests/test-updater.php
+          php tests/test-analytics.php
 
   standards:
     name: Coding standards

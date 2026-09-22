@@ -45,6 +45,36 @@ class Bsrep_Analytics {
 			);
 		}
 
+		// Everything below this point calls into another vendor's code. Independent
+		// Analytics bundles its own Laravel database layer and opens its own PDO
+		// connection rather than going through $wpdb, so it can throw where $wpdb
+		// would not. A throw here used to take down Bsrep_Collector::build() and with
+		// it the payload, the download button and the scheduled push, on a site where
+		// every other section was fine. Seen on Biscuit Dev, September 22, 2026:
+		// PDOException SQLSTATE[HY000] [2002] under WP-CLI.
+		//
+		// A third party's failure is an unmeasured section, not a dead payload, so it
+		// degrades to available:false with the reason attached. Never to zeros.
+		try {
+			return $this->collect_from_vendor( $months );
+		} catch ( \Throwable $e ) {
+			return array(
+				'available' => false,
+				'reason'    => 'Independent Analytics is active but its API failed: '
+					. get_class( $e ) . ': ' . $e->getMessage()
+					. '. Nothing is reported for this section rather than reporting zero.',
+			);
+		}
+	}
+
+	/**
+	 * The body of collect(), separated so one try/catch covers every vendor call.
+	 *
+	 *  int $months How many whole months back to report.
+	 *  array
+	 *  RuntimeException When the vendor returns a shape this cannot read.
+	 */
+	protected function collect_from_vendor( $months ) {
 		$timezone = wp_timezone();
 		$now      = new DateTimeImmutable( 'now', $timezone );
 
@@ -113,19 +143,16 @@ class Bsrep_Analytics {
 	 * @return array{views:int,visitors:int,sessions:int}
 	 */
 	protected function window( DateTimeInterface $from, DateTimeInterface $to ) {
-		$empty = array(
-			'views'    => 0,
-			'visitors' => 0,
-			'sessions' => 0,
-		);
-
+		// No $empty fallback here on purpose. An all-zero month is indistinguishable
+		// from a real quiet month once it reaches the page, and only one of the two is
+		// true. Anything unreadable throws and the whole section reports unavailable.
 		if ( ! function_exists( 'iawp_analytics' ) ) {
-			return $empty;
+			throw new RuntimeException( 'iawp_analytics() is not defined.' );
 		}
 
 		$result = iawp_analytics( $this->as_datetime( $from ), $this->as_datetime( $to ) );
 
-		return $this->normalise( $result, $empty );
+		return $this->normalise( $result );
 	}
 
 	/**
@@ -186,17 +213,23 @@ class Bsrep_Analytics {
 	/**
 	 * Read views, visitors and sessions off whatever shape the vendor returned.
 	 *
-	 * @param mixed $result   Vendor return value.
-	 * @param array $fallback Value to use when nothing is readable.
+	 * Throws rather than falling back to zeros. If Independent Analytics changes
+	 * its return shape, that is a schema change this cannot silently absorb, and
+	 * absorbing it would print "0 visitors" on a client's page as though measured.
+	 *
+	 * @param mixed $result Vendor return value.
 	 * @return array{views:int,visitors:int,sessions:int}
+	 * @throws RuntimeException When the shape is unreadable.
 	 */
-	protected function normalise( $result, array $fallback ) {
+	protected function normalise( $result ) {
 		if ( is_object( $result ) ) {
 			$result = get_object_vars( $result );
 		}
 
 		if ( ! is_array( $result ) ) {
-			return $fallback;
+			throw new RuntimeException(
+				'iawp_analytics() returned ' . gettype( $result ) . ', which this cannot read.'
+			);
 		}
 
 		return array(
