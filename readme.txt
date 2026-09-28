@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.2
+Stable tag: 0.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,19 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.3 =
+* The structure scan now shares its 600 URL cap across post types instead of
+  keeping the first 600 of one list. The old order gave every slot to posts on
+  a site with more than 600 of them, so pages, events and products were never
+  scanned, while the result still read as a sample of the whole site. Types
+  now take turns: a type with few URLs is scanned in full and the room it
+  leaves goes to the types with more.
+* The published count per type is now the real total, not the length of a
+  list that stops at 600, so the dropped count is no longer understated.
+* The scan result carries "sampling": "shared" and "sampled_by_type", the
+  published and queued count for every post type. A result without them came
+  from the old slice and must not be read as a sample of the site.
 
 = 0.1.2 =
 * Security hardening: the updater now pins its download URL to this plugin's
