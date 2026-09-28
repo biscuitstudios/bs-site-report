@@ -72,14 +72,20 @@ class Bsrep_Scanner {
 	 * @return array{queued:int,capped:int}
 	 */
 	public function start() {
-		$urls   = $this->collect_urls();
-		$total  = count( $urls );
-		$capped = 0;
+		$collected = $this->collect_urls();
+		$shared    = self::share( $collected['groups'], self::MAX_URLS );
+		$urls      = $shared['urls'];
+		$sampled   = array();
 
-		if ( $total > self::MAX_URLS ) {
-			$capped = $total - self::MAX_URLS;
-			$urls   = array_slice( $urls, 0, self::MAX_URLS );
+		foreach ( $collected['published'] as $type => $published ) {
+			$sampled[ $type ] = array(
+				'published' => (int) $published,
+				'queued'    => (int) ( $shared['kept'][ $type ] ?? 0 ),
+			);
 		}
+
+		$total  = (int) array_sum( $collected['published'] );
+		$capped = max( 0, $total - count( $urls ) );
 
 		update_option(
 			self::STATE_OPTION,
@@ -89,6 +95,7 @@ class Bsrep_Scanner {
 				'done'       => array(),
 				'capped'     => $capped,
 				'found'      => $total,
+				'sampled'    => $sampled,
 			),
 			false
 		);
@@ -104,21 +111,89 @@ class Bsrep_Scanner {
 	}
 
 	/**
-	 * Build the URL list from published content.
+	 * Share the cap across post types rather than cutting a list.
+	 *
+	 * The first version sliced one list in post-type order, so on
+	 * georgiaplanning.org, September 22, 2026, all 600 slots went to news posts
+	 * and not one page, event or product was scanned, while the result reported
+	 * "600 of 1,236" as though it were a sample of the site. Here the types take
+	 * turns, one URL each, in the order given. A type with few URLs is scanned in
+	 * full and the room it leaves goes to the types that have more. Within a type
+	 * the order given is kept, which collect_urls() makes most recently modified
+	 * first.
+	 *
+	 * Static and WordPress-free so it can be tested without a site.
+	 *
+	 * @param array $groups Ordered map of post type => list of URL records.
+	 * @param int   $cap    Most URLs to keep.
+	 * @return array{urls:array,kept:array} The interleaved list, and how many
+	 *                                        of each type made it in.
+	 */
+	public static function share( array $groups, $cap ) {
+		$urls   = array();
+		$kept   = array();
+		$cursor = array();
+
+		foreach ( $groups as $type => $list ) {
+			$groups[ $type ] = array_values( (array) $list );
+			$kept[ $type ]   = 0;
+			$cursor[ $type ] = 0;
+		}
+
+		$cap = max( 0, (int) $cap );
+
+		while ( count( $urls ) < $cap ) {
+			$took = false;
+
+			foreach ( $groups as $type => $list ) {
+				if ( count( $urls ) >= $cap ) {
+					break;
+				}
+				if ( $cursor[ $type ] < count( $list ) ) {
+					$urls[] = $list[ $cursor[ $type ] ];
+					++$cursor[ $type ];
+					++$kept[ $type ];
+					$took = true;
+				}
+			}
+
+			if ( ! $took ) {
+				break;
+			}
+		}
+
+		return array(
+			'urls' => $urls,
+			'kept' => $kept,
+		);
+	}
+
+	/**
+	 * Build the URL lists from published content, one list per post type.
 	 *
 	 * Front page first, then every public post type. WP_Query rather than a direct
-	 * query, and no query inside the loop.
+	 * query, and no query inside the loop. A URL already listed under an earlier
+	 * type is not listed again, so a static front page is not scanned twice.
 	 *
-	 * @return array List of array{ url: string, post_type: string, post_id: int }.
+	 * The published count is found_posts, the real number, not the length of the
+	 * list, which stops at MAX_URLS per type. Otherwise a type with 2,000 posts
+	 * would report 600 published and the dropped count would be understated.
+	 *
+	 * @return array{groups:array,published:array} groups is post type => list of
+	 *         array{ url: string, post_type: string, post_id: int }.
 	 */
 	protected function collect_urls() {
-		$urls = array();
-
-		$urls[] = array(
-			'url'       => home_url( '/' ),
-			'post_type' => 'front_page',
-			'post_id'   => 0,
+		$groups    = array(
+			'front_page' => array(
+				array(
+					'url'       => home_url( '/' ),
+					'post_type' => 'front_page',
+					'post_id'   => 0,
+				),
+			),
 		);
+		$published = array( 'front_page' => 1 );
+		$seen      = array( home_url( '/' ) => true );
 
 		$types = get_post_types(
 			array(
@@ -137,13 +212,16 @@ class Bsrep_Scanner {
 					'post_status'            => 'publish',
 					'posts_per_page'         => self::MAX_URLS,
 					'fields'                 => 'ids',
-					'no_found_rows'          => true,
+					'no_found_rows'          => false,
 					'update_post_meta_cache' => false,
 					'update_post_term_cache' => false,
 					'orderby'                => 'modified',
 					'order'                  => 'DESC',
 				)
 			);
+
+			$list = array();
+			$dups = 0;
 
 			foreach ( $query->posts as $post_id ) {
 				$permalink = get_permalink( $post_id );
@@ -152,27 +230,39 @@ class Bsrep_Scanner {
 					continue;
 				}
 
-				$urls[] = array(
+				// Already listed under an earlier type. Usually a static front
+				// page, which is listed under front_page and again under page.
+				// Counted off this type's published total as well, or the same
+				// page would be published twice. The URL stays with the type that
+				// listed it first, which is not always the type it really is: on
+				// Biscuit Dev, September 28, 2026, an Event Tickets product carried
+				// its event's own URL, so the event page was scanned once, filed
+				// under product, and events reported 0 published.
+				if ( isset( $seen[ $permalink ] ) ) {
+					++$dups;
+					continue;
+				}
+
+				$seen[ $permalink ] = true;
+				$list[]             = array(
 					'url'       => $permalink,
 					'post_type' => $type,
 					'post_id'   => (int) $post_id,
 				);
 			}
-		}
 
-		$seen = array();
-		$out  = array();
-
-		foreach ( $urls as $item ) {
-			if ( isset( $seen[ $item['url'] ] ) ) {
+			if ( array() === $list && 0 === (int) $query->found_posts ) {
 				continue;
 			}
 
-			$seen[ $item['url'] ] = true;
-			$out[]                = $item;
+			$groups[ $type ]    = $list;
+			$published[ $type ] = max( 0, (int) $query->found_posts - $dups );
 		}
 
-		return $out;
+		return array(
+			'groups'    => $groups,
+			'published' => $published,
+		);
 	}
 
 	/**
@@ -467,6 +557,7 @@ class Bsrep_Scanner {
 				'started_at' => (string) ( $state['started_at'] ?? '' ),
 				'urls_found' => (int) ( $state['found'] ?? 0 ),
 				'urls_dropped' => (int) ( $state['capped'] ?? 0 ),
+				'sampled'      => isset( $state['sampled'] ) && is_array( $state['sampled'] ) ? $state['sampled'] : null,
 			)
 		);
 
@@ -509,6 +600,17 @@ class Bsrep_Scanner {
 
 		$by_type = array();
 		$schema  = array();
+
+		// Every sampled type gets a row, even one whose pages all failed, so a
+		// type that was queued and came back empty is visible rather than absent.
+		foreach ( (array) ( $meta['sampled'] ?? array() ) as $type => $row ) {
+			$by_type[ (string) $type ] = array(
+				'pages'             => 0,
+				'with_jsonld'       => 0,
+				'headings_in_order' => 0,
+				'no_description'    => 0,
+			);
+		}
 
 		foreach ( $pages as $page ) {
 			$type = (string) ( $page['post_type'] ?? 'unknown' );
@@ -592,7 +694,7 @@ class Bsrep_Scanner {
 
 		arsort( $schema );
 
-		return array(
+		$out = array(
 			'started_at'   => (string) ( $meta['started_at'] ?? '' ),
 			'urls_found'   => (int) ( $meta['urls_found'] ?? count( $pages ) ),
 			'urls_dropped' => (int) ( $meta['urls_dropped'] ?? 0 ),
@@ -601,6 +703,16 @@ class Bsrep_Scanner {
 			'by_post_type' => $by_type,
 			'schema_types' => $schema,
 		);
+
+		// Only a scan that shared the cap says so. A result without this key came
+		// from the old list slice, and a consumer must not read it as a sample of
+		// the whole site.
+		if ( isset( $meta['sampled'] ) && is_array( $meta['sampled'] ) ) {
+			$out['sampling']        = 'shared';
+			$out['sampled_by_type'] = $meta['sampled'];
+		}
+
+		return $out;
 	}
 
 	/**

@@ -35,6 +35,7 @@ jobs:
         run: |
           php tests/test-updater.php
           php tests/test-analytics.php
+          php tests/test-scanner.php
 
   standards:
     name: Coding standards
