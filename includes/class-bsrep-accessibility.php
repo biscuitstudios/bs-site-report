@@ -40,6 +40,14 @@ class Bsrep_Accessibility {
 	const SUMMARY_META = '_edac_summary';
 
 	/**
+	 * The two Accessibility Checker rules that mean an image has no alt text.
+	 *
+	 * Slugs from includes/classes/Rules/Rule/ImgAltMissingRule.php:26 and
+	 * ImgLinkedAltMissingRule.php:26, checked identical in 1.52.0 and 1.52.1.
+	 */
+	const ALT_RULES = array( 'img_alt_missing', 'img_linked_alt_missing' );
+
+	/**
 	 * Collect the accessibility section.
 	 *
 	 * @return array
@@ -155,6 +163,68 @@ class Bsrep_Accessibility {
 			'contrast_errors'   => $contrast,
 			'warnings'          => $warnings,
 			'passed_tests'      => $passed,
+			'images_missing_alt' => $this->images_missing_alt(),
+		);
+	}
+
+	/**
+	 * Open "image missing alt text" issues, plain and linked together.
+	 *
+	 * Counted the way Accessibility Checker's own site summary counts them:
+	 * Scans_Stats::get_all_issues_found_on_site() in admin/class-scans-stats.php
+	 * takes COUNT(id) from its issues table for this site with ignre = 0 and
+	 * ignre_global = 0, grouped by rule. This is the same WHERE, narrowed to the
+	 * two alt rules.
+	 *
+	 * A direct query rather than Scans_Stats::summary(). summary() runs without a
+	 * user, but on a cache miss it recomputes every stat on the site and writes a
+	 * 24 hour transient, and this plugin never writes into another plugin's
+	 * state. The method that builds the per-rule list is private, so there is no
+	 * narrower call. The table is Equalize Digital's, read and never written.
+	 *
+	 * @return array
+	 */
+	protected function images_missing_alt() {
+		global $wpdb;
+
+		$table = $wpdb->prefix . 'accessibility_checker';
+
+		// Their own existence check, from admin/class-update-database.php.
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) ) === $table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+		if ( ! $exists ) {
+			return array(
+				'available' => false,
+				'value'     => null,
+				'reason'    => 'Accessibility Checker\'s issues table was not found, so there is no alt text count. Report as not measured, never as zero.',
+			);
+		}
+
+		$count = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$wpdb->prepare(
+				'SELECT COUNT(id) FROM %i WHERE siteid = %d AND ignre = 0 AND ignre_global = 0 AND rule IN (%s, %s)',
+				$table,
+				get_current_blog_id(),
+				self::ALT_RULES[0],
+				self::ALT_RULES[1]
+			)
+		);
+
+		// A failed query and an unreadable answer both come back as null here,
+		// and either one is a schema change rather than a site with no issues.
+		if ( null === $count || '' !== (string) $wpdb->last_error || ! is_numeric( $count ) ) {
+			return array(
+				'available' => false,
+				'value'     => null,
+				'reason'    => 'The query on Accessibility Checker\'s issues table failed or returned nothing readable, so its schema may have changed. Report as not measured.',
+			);
+		}
+
+		return array(
+			'available' => true,
+			'value'     => (int) $count,
+			'rules'     => self::ALT_RULES,
+			'source'    => 'Equalize Digital Accessibility Checker, ' . $table . ' table. Open issues only, ignored ones excluded, counted as its own site summary counts them. Read only. Not a supported API.',
 		);
 	}
 }

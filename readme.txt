@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.4
+Stable tag: 0.1.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,17 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.5 =
+* New: the accessibility section carries images_missing_alt, the open
+  Accessibility Checker issues for "Image Missing Alternative Text" and
+  "Linked Image Missing Alternative Text" together (rules img_alt_missing
+  and img_linked_alt_missing). Counted the way Accessibility Checker's own
+  site summary counts them: this site only, ignored and globally ignored
+  issues left out. Read only, from its issues table. When the table is
+  missing or the query fails, the value is null with a reason, never 0.
+* New: tests/test-accessibility.php runs the real query on an SQLite copy of
+  the table, one fixture either side of each line. Added to CI.
 
 = 0.1.4 =
 * A Git working copy is never offered an update. "Update now" replaces the

@@ -36,6 +36,7 @@ jobs:
           php tests/test-updater.php
           php tests/test-analytics.php
           php tests/test-scanner.php
+          php tests/test-accessibility.php
 
   standards:
     name: Coding standards
