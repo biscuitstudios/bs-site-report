@@ -48,6 +48,17 @@ class Bsrep_Accessibility {
 	const ALT_RULES = array( 'img_alt_missing', 'img_linked_alt_missing' );
 
 	/**
+	 * The Accessibility Checker rule for an image with alt="".
+	 *
+	 * From includes/classes/Rules/Rule/ImgAltEmptyRule.php:26, identical in
+	 * 1.52.0 and 1.52.1. Its scanner selector is img[alt=""], linked images
+	 * included, so img_linked_alt_empty is left out: it flags the <a> around
+	 * an image this rule has already flagged, and adding it would count one
+	 * linked image twice.
+	 */
+	const EMPTY_ALT_RULE = 'img_alt_empty';
+
+	/**
 	 * Collect the accessibility section.
 	 *
 	 * @return array
@@ -164,7 +175,7 @@ class Bsrep_Accessibility {
 			'warnings'          => $warnings,
 			'passed_tests'      => $passed,
 			'images_missing_alt' => $this->images_missing_alt(),
-		);
+		) + $this->images_empty_alt();
 	}
 
 	/**
@@ -226,5 +237,127 @@ class Bsrep_Accessibility {
 			'rules'     => self::ALT_RULES,
 			'source'    => 'Equalize Digital Accessibility Checker, ' . $table . ' table. Open issues only, ignored ones excluded, counted as its own site summary counts them. Read only. Not a supported API.',
 		);
+	}
+
+	/**
+	 * Open "image empty alternative text" issues, all of them and the ones an
+	 * editor placed from the media library.
+	 *
+	 * Same table, same WHERE as images_missing_alt(), for the one rule. The
+	 * second count keeps only rows whose stored HTML carries a wp-image-N class,
+	 * which WordPress adds to an image inserted into content from the media
+	 * library and which theme markup (wp_get_attachment_image(), a logo, a
+	 * background) does not carry. The object column holds the element's full
+	 * outerHTML, passed through esc_attr() on insert, so it is decoded and its
+	 * class attributes are read in PHP rather than matched with LIKE, which
+	 * would take "not-wp-image-x" for a match.
+	 *
+	 * @return array Two keys: images_empty_alt and images_empty_alt_in_content.
+	 */
+	protected function images_empty_alt() {
+		global $wpdb;
+
+		$table = $wpdb->prefix . 'accessibility_checker';
+		$rule  = self::EMPTY_ALT_RULE;
+
+		$unmeasured = function ( $reason ) {
+			return array(
+				'available' => false,
+				'value'     => null,
+				'reason'    => $reason,
+			);
+		};
+
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) ) === $table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+		if ( ! $exists ) {
+			$reason = 'Accessibility Checker\'s issues table was not found, so there is no empty alt count. Report as not measured, never as zero.';
+
+			return array(
+				'images_empty_alt'            => $unmeasured( $reason ),
+				'images_empty_alt_in_content' => $unmeasured( $reason ),
+			);
+		}
+
+		$where = $wpdb->prepare( 'siteid = %d AND ignre = 0 AND ignre_global = 0 AND rule = %s', get_current_blog_id(), $rule );
+
+		$count = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(id) FROM %i WHERE ', $table ) . $where ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- $where is prepared above.
+
+		if ( null === $count || '' !== (string) $wpdb->last_error || ! is_numeric( $count ) ) {
+			$reason = 'The query on Accessibility Checker\'s issues table failed or returned nothing readable, so its schema may have changed. Report as not measured.';
+
+			return array(
+				'images_empty_alt'            => $unmeasured( $reason ),
+				'images_empty_alt_in_content' => $unmeasured( $reason ),
+			);
+		}
+
+		$source = 'Equalize Digital Accessibility Checker, ' . $table . ' table. Open issues only, ignored ones excluded. Read only. Not a supported API.';
+
+		$all = array(
+			'available' => true,
+			'value'     => (int) $count,
+			'rules'     => array( $rule ),
+			'source'    => $source,
+		);
+
+		// LIKE narrows the rows fetched; the class check below decides.
+		$objects = $wpdb->get_col( $wpdb->prepare( 'SELECT object FROM %i WHERE ', $table ) . $where . $wpdb->prepare( ' AND object LIKE %s', '%' . $wpdb->esc_like( 'wp-image-' ) . '%' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- every part is prepared.
+
+		if ( '' !== (string) $wpdb->last_error || ! is_array( $objects ) ) {
+			return array(
+				'images_empty_alt'            => $all,
+				'images_empty_alt_in_content' => $unmeasured( 'The stored HTML of the empty alt issues could not be read, so they cannot be split into content and theme images. Report as not measured.' ),
+			);
+		}
+
+		$in_content = 0;
+
+		foreach ( $objects as $object ) {
+			if ( self::has_media_library_class( (string) $object ) ) {
+				++$in_content;
+			}
+		}
+
+		return array(
+			'images_empty_alt'            => $all,
+			'images_empty_alt_in_content' => array(
+				'available' => true,
+				'value'     => $in_content,
+				'rules'     => array( $rule ),
+				'match'     => 'The stored HTML has a class attribute containing a wp-image-<number> class, the class WordPress adds to an image inserted into content from the media library.',
+				'source'    => $source,
+			),
+		);
+	}
+
+	/**
+	 * Whether stored issue HTML carries a wp-image-<number> class.
+	 *
+	 * Reads every class attribute in the decoded HTML and checks whole class
+	 * tokens, so "not-wp-image-5", "wp-image-x" and wp-image-5 in an alt or src
+	 * do not count.
+	 *
+	 * @param string $object The object column as stored.
+	 * @return bool
+	 */
+	public static function has_media_library_class( $object ) {
+		$html = html_entity_decode( $object, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		if ( ! preg_match_all( '/\sclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches, PREG_SET_ORDER ) ) {
+			return false;
+		}
+
+		foreach ( $matches as $m ) {
+			$classes = preg_split( '/\s+/', trim( ( $m[1] ?? '' ) . ' ' . ( $m[2] ?? '' ) ) );
+
+			foreach ( $classes as $class ) {
+				if ( 1 === preg_match( '/^wp-image-\d+$/', $class ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 }

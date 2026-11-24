@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.5
+Stable tag: 0.1.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,21 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.6 =
+* New: the accessibility section carries images_empty_alt, the open
+  Accessibility Checker "Image Empty Alternative Text" issues (rule
+  img_alt_empty), with the same filter as images_missing_alt: this site only,
+  ignored and globally ignored left out, null with a reason when it cannot be
+  measured. WordPress writes alt="" when alt text is cleared, so this, not the
+  missing count, is where an image with no description shows up.
+  img_linked_alt_empty is left out on purpose: it flags the link around an
+  image img_alt_empty has already flagged.
+* New: images_empty_alt_in_content, the same count limited to images carrying
+  a wp-image-<number> class, which WordPress adds to images inserted from the
+  media library and theme markup does not. Whole class tokens are matched, so
+  a look-alike such as not-wp-image-5 does not count.
+* images_missing_alt is unchanged. payload_version stays 1.
 
 = 0.1.5 =
 * New: the accessibility section carries images_missing_alt, the open

@@ -80,6 +80,18 @@ class Test_Wpdb {
 		}
 		return ( false === $v || '' === $v ) ? null : (string) $v;
 	}
+
+	// get_col() is built on get_var() in wpdb, so the same '' to null quirk.
+	public function get_col( $sql ) {
+		$this->last_error = '';
+		try {
+			$rows = $this->pdo->query( $sql )->fetchAll( PDO::FETCH_COLUMN, 0 );
+		} catch ( PDOException $e ) {
+			$this->last_error = $e->getMessage();
+			return array();
+		}
+		return array_map( function ( $v ) { return '' === $v ? null : (string) $v; }, $rows );
+	}
 }
 
 // Accessibility Checker's columns, from admin/class-update-database.php. siteid
@@ -90,10 +102,13 @@ function make_table( $wpdb, $columns = null ) {
 		'CREATE TABLE wp_accessibility_checker (' . ( $columns ?? 'id INTEGER PRIMARY KEY AUTOINCREMENT, postid INTEGER NOT NULL, siteid TEXT NOT NULL, rule TEXT NOT NULL, object TEXT NOT NULL, ignre INTEGER NOT NULL, ignre_global INTEGER NOT NULL' ) . ')'
 	);
 }
-function add_issue( $wpdb, $rule, $ignre = 0, $global = 0, $site = '1', $post = 11 ) {
+// Stored as Accessibility Checker stores it: the outerHTML through esc_attr().
+function add_issue( $wpdb, $rule, $ignre = 0, $global = 0, $site = '1', $post = 11, $html = '<img src="x.jpg">' ) {
 	$s = $wpdb->pdo->prepare( 'INSERT INTO wp_accessibility_checker (postid, siteid, rule, object, ignre, ignre_global) VALUES (?, ?, ?, ?, ?, ?)' );
-	$s->execute( array( $post, $site, $rule, '<img src="x.jpg">', $ignre, $global ) );
+	$s->execute( array( $post, $site, $rule, htmlspecialchars( $html, ENT_QUOTES, 'UTF-8' ), $ignre, $global ) );
 }
+function emp() { return ( new Bsrep_Accessibility() )->collect()['images_empty_alt'] ?? 'MISSING'; }
+function inc() { return ( new Bsrep_Accessibility() )->collect()['images_empty_alt_in_content'] ?? 'MISSING'; }
 function alt() { return ( new Bsrep_Accessibility() )->collect()['images_missing_alt'] ?? 'MISSING'; }
 
 $GLOBALS['wpdb'] = new Test_Wpdb();
@@ -134,6 +149,49 @@ check( 'an open issue on a second page counts', alt()['value'], 3 );
 
 check( 'the rules are named in the payload', alt()['rules'], array( 'img_alt_missing', 'img_linked_alt_missing' ) );
 
+echo "\nimages_empty_alt and images_empty_alt_in_content\n";
+make_table( $wpdb );
+$content = '<img loading="lazy" class="alignnone size-full wp-image-123" src="a.jpg" alt="" width="10" height="10">';
+$theme   = '<img class="attachment-full size-full" src="logo.svg" alt="">';
+
+check( 'empty table: empty alt is a measured zero', emp()['value'], 0 );
+check( 'empty table: in content is a measured zero', inc()['value'], 0 );
+
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '1', 11, $content );
+check( 'an open empty alt content image counts in empty alt', emp()['value'], 1 );
+check( '...and in content', inc()['value'], 1 );
+
+add_issue( $wpdb, 'img_alt_empty', 1, 0, '1', 11, $content );
+add_issue( $wpdb, 'img_alt_empty', 0, 1, '1', 11, $content );
+check( 'ignored and globally ignored do not count in empty alt', emp()['value'], 1 );
+check( '...nor in content', inc()['value'], 1 );
+
+add_issue( $wpdb, 'img_alt_missing', 0, 0, '1', 11, '<img class="wp-image-9" src="b.jpg">' );
+check( 'a missing alt row is not counted as empty', emp()['value'], 1 );
+check( '...nor as empty in content', inc()['value'], 1 );
+check( 'and images_missing_alt still sees it', alt()['value'], 1 );
+
+add_issue( $wpdb, 'img_linked_alt_empty', 0, 0, '1', 11, '<a href="/x"><img class="wp-image-7" src="c.jpg" alt=""></a>' );
+check( 'the linked-empty row for the same image is not counted twice', emp()['value'], 1 );
+
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '1', 11, $theme );
+check( 'a theme image counts in empty alt', emp()['value'], 2 );
+check( '...but not in content', inc()['value'], 1 );
+
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '1', 11, '<img class="not-wp-image-5 hero" src="d.jpg" alt="">' );
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '1', 11, '<img class="wp-image-x" src="e.jpg" alt="">' );
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '1', 11, '<img class="logo" src="/uploads/wp-image-5.jpg" alt="">' );
+check( 'look-alikes (not-wp-image-5, wp-image-x, wp-image- in src) count in empty alt', emp()['value'], 5 );
+check( '...but none of them in content', inc()['value'], 1 );
+
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '1', 12, "<img class='wp-image-44' src='f.jpg' alt=''>" );
+check( 'single-quoted class still matches', inc()['value'], 2 );
+
+add_issue( $wpdb, 'img_alt_empty', 0, 0, '2', 11, $content );
+check( 'another site does not count in either', array( emp()['value'], inc()['value'] ), array( 6, 2 ) );
+
+check( 'images_missing_alt is unchanged by all of this', alt()['rules'], array( 'img_alt_missing', 'img_linked_alt_missing' ) );
+
 echo "\nthe existing summary fields are untouched\n";
 $section = ( new Bsrep_Accessibility() )->collect();
 check( 'errors still summed from _edac_summary', $section['errors'], 4 );
@@ -143,6 +201,8 @@ echo "\nnot measurable is null with a reason, never 0\n";
 $wpdb->pdo->exec( 'DROP TABLE wp_accessibility_checker' );
 $got = alt();
 check( 'missing table: value is null', $got['value'], null );
+check( 'missing table: empty alt is null', emp()['value'], null );
+check( 'missing table: in content is null with a reason', array( inc()['value'], '' !== ( inc()['reason'] ?? '' ) ), array( null, true ) );
 check( 'missing table: unavailable', $got['available'], false );
 check( 'missing table: a reason is given', isset( $got['reason'] ) && '' !== $got['reason'], true );
 
@@ -151,6 +211,14 @@ make_table( $wpdb, 'id INTEGER PRIMARY KEY, postid INTEGER, siteid TEXT, rule TE
 $got = alt();
 check( 'changed schema: value is null', $got['value'], null );
 check( 'changed schema: a reason is given', isset( $got['reason'] ) && '' !== $got['reason'], true );
+check( 'changed schema: empty alt is null', emp()['value'], null );
+check( 'changed schema: in content is null', inc()['value'], null );
+
+// Table fine, but no object column: the count stands, the split cannot be made.
+make_table( $wpdb, 'id INTEGER PRIMARY KEY, postid INTEGER, siteid TEXT, rule TEXT, ignre INTEGER, ignre_global INTEGER' );
+$wpdb->pdo->exec( "INSERT INTO wp_accessibility_checker (postid, siteid, rule, ignre, ignre_global) VALUES (11, '1', 'img_alt_empty', 0, 0)" );
+check( 'no object column: empty alt still counts', emp()['value'], 1 );
+check( 'no object column: in content is null with a reason', array( inc()['value'], '' !== ( inc()['reason'] ?? '' ) ), array( null, true ) );
 
 // A table whose name only matches through an unescaped underscore must not
 // pass the existence check.
@@ -169,6 +237,7 @@ $section            = ( new Bsrep_Accessibility() )->collect();
 check( 'not installed: installed is false', $section['installed'], false );
 check( 'not installed: available is false', $section['available'], false );
 check( 'not installed: no alt count is invented', array_key_exists( 'images_missing_alt', $section ), false );
+check( 'not installed: no empty alt counts are invented', array( array_key_exists( 'images_empty_alt', $section ), array_key_exists( 'images_empty_alt_in_content', $section ) ), array( false, false ) );
 
 echo "\n";
 echo $fail ? "$fail FAILED\n" : "all passed\n";
