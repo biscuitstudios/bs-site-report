@@ -86,6 +86,87 @@ echo "\nreadme.txt changelog\n";
 check( 'the shipped readme.txt parses and yields 0.1.0', isset( $sections['0.1.0'] ), true );
 check( 'and its body is not empty', isset( $sections['0.1.0'] ) && '' !== trim( $sections['0.1.0'] ), true );
 
+// The Git working copy guard, driven through the filter core actually fires:
+// init() registers the callback, then apply_filters( 'update_plugins_github.com' )
+// runs it, as wp-includes/update.php does. A copy with .git beside its main file
+// must get no offer, and must not even ask for a release. A copy without one
+// must still get the offer, which is the control that proves the stubs reach the
+// offering branch at all.
+echo "\ngit working copy guard, via update_plugins_github.com\n";
+
+$GLOBALS['bsrep_test_filters']   = array();
+$GLOBALS['bsrep_test_transient'] = 0;
+
+function add_filter( $hook, $cb, $prio = 10, $args = 1 ) { $GLOBALS['bsrep_test_filters'][ $hook ][] = array( $cb, $args ); }
+function add_action( $hook, $cb, $prio = 10, $args = 1 ) { add_filter( $hook, $cb, $prio, $args ); }
+function apply_filters( $hook, $value, ...$rest ) {
+	foreach ( $GLOBALS['bsrep_test_filters'][ $hook ] ?? array() as $f ) {
+		$value = call_user_func_array( $f[0], array_slice( array_merge( array( $value ), $rest ), 0, $f[1] ) );
+	}
+	return $value;
+}
+function plugin_basename( $file ) { return basename( dirname( $file ) ) . '/' . basename( $file ); }
+function plugins_url( $path, $file ) { return 'https://example.test/' . $path; }
+function get_site_transient( $key ) {
+	$GLOBALS['bsrep_test_transient']++;
+	// A warm cache, so the offering branch is reached with no network call.
+	return array(
+		'version'   => '9.9.9',
+		'package'   => 'https://github.com/biscuitstudios/bs-site-report/releases/download/v9.9.9/bs-site-report-v9.9.9.zip',
+		'url'       => 'https://github.com/biscuitstudios/bs-site-report/releases/tag/v9.9.9',
+		'published' => '',
+	);
+}
+
+// Each copy sits in a folder named bs-site-report, so plugin_basename() gives
+// the basename core passes in and the guard is the only thing that differs.
+$root = sys_get_temp_dir() . '/bsrep-guard-' . getmypid();
+$copy = function ( $name, $git ) use ( $root ) {
+	$dir = "$root/$name/bs-site-report";
+	mkdir( $dir, 0777, true );
+	touch( "$dir/bs-site-report.php" );
+	if ( 'dir' === $git ) { mkdir( "$dir/.git" ); }
+	if ( 'file' === $git ) { file_put_contents( "$dir/.git", "gitdir: /elsewhere\n" ); } // A worktree or submodule.
+	return "$dir/bs-site-report.php";
+};
+$offer = function ( $file ) {
+	$GLOBALS['bsrep_test_filters']   = array();
+	$GLOBALS['bsrep_test_transient'] = 0;
+	( new Bsrep_Updater( $file ) )->init();
+	return apply_filters( 'update_plugins_github.com', false, array( 'Version' => '0.1.4' ), 'bs-site-report/bs-site-report.php', array() );
+};
+
+$plain   = $copy( 'plain', null );
+$gitdir  = $copy( 'gitdir', 'dir' );
+$gitfile = $copy( 'gitfile', 'file' );
+
+// biscuitstudios.local reaches the working copy through a symlinked plugin
+// folder. In production __FILE__ has already resolved it; this checks the
+// unresolved path is guarded too, in case that ever changes.
+mkdir( "$root/linked", 0777, true );
+symlink( dirname( $gitdir ), "$root/linked/bs-site-report" );
+$linked = "$root/linked/bs-site-report/bs-site-report.php";
+
+$got = $offer( $plain );
+check( 'no .git: an update is offered', is_array( $got ) ? $got['version'] : $got, '9.9.9' );
+check( 'no .git: the release was looked up', $GLOBALS['bsrep_test_transient'], 1 );
+
+$got = $offer( $gitdir );
+check( '.git folder: no update is offered', $got, false );
+check( '.git folder: no release lookup either', $GLOBALS['bsrep_test_transient'], 0 );
+
+check( '.git file (worktree): no update is offered', $offer( $gitfile ), false );
+check( 'reached through a symlink: no update is offered', $offer( $linked ), false );
+
+// A sibling plugin's answer passes straight through the guard untouched.
+$GLOBALS['bsrep_test_filters'] = array();
+( new Bsrep_Updater( $gitdir ) )->init();
+check( 'another plugin is passed through untouched',
+	apply_filters( 'update_plugins_github.com', array( 'version' => '1.0.0' ), array(), 'woo-exports/woo-exports.php', array() ),
+	array( 'version' => '1.0.0' ) );
+
+exec( 'rm -rf ' . escapeshellarg( $root ) );
+
 // Positive control on the parser itself: a version heading outside the changelog
 // section must NOT be picked up, which is the Upgrade Notice trap.
 echo "\n";

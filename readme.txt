@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.3
+Stable tag: 0.1.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,17 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.4 =
+* A Git working copy is never offered an update. "Update now" replaces the
+  whole plugin folder with the release zip, .git included, and WordPress's
+  background updates skip a checkout but a manual click does not. The
+  updater now checks for a .git folder or file beside the main file and
+  offers nothing, and asks GitHub nothing, when it finds one. Client sites
+  install from the release zip, which has no .git, so they are unaffected.
+* tests/test-updater.php drives the guard through the
+  update_plugins_github.com filter both ways: with .git, as a .git file,
+  through a symlinked folder, and without .git as the control.
 
 = 0.1.3 =
 * The structure scan now shares its 600 URL cap across post types instead of

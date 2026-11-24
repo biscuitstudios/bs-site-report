@@ -85,6 +85,17 @@ class Bsrep_Updater {
 			return $update;
 		}
 
+		// A Git working copy is never offered an update. "Update now" replaces
+		// the whole folder with the release zip, .git included, and core's own
+		// background updates skip a checkout but a manual click does not. The
+		// folder comes from the main file, and __FILE__ has already resolved
+		// any symlink, so a site that reaches this folder through one still
+		// sees the real folder and its .git. Checked before get_release() so a
+		// working copy costs no GitHub call either.
+		if ( file_exists( dirname( $this->file ) . '/.git' ) ) {
+			return $update;
+		}
+
 		$release = $this->get_release();
 
 		if ( null === $release ) {
