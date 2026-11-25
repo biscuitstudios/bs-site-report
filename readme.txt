@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.10
+Stable tag: 0.1.11
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,12 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.11 =
+* Changed: the Receiver URL field is full width, and on a new install it is
+  filled in with Biscuit's receiver and used straight away, so a site pushes
+  without anyone typing the address. Clearing the field and saving still means
+  nothing is sent. A site that already saved an address keeps it.
 
 = 0.1.10 =
 * Added: seo.search_engines_allowed. Reads WordPress's "Discourage search

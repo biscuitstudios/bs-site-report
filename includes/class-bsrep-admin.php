@@ -204,12 +204,12 @@ class Bsrep_Admin {
 				<input type="hidden" name="task" value="save">
 				<p>
 					<label for="bsrep_endpoint_url"><?php esc_html_e( 'Receiver URL', 'bs-site-report' ); ?></label><br>
-					<input type="url" class="regular-text code" id="bsrep_endpoint_url" name="bsrep_endpoint_url"
-						value="<?php echo esc_attr( get_option( Bsrep_Push::URL_OPTION, '' ) ); ?>"
-						placeholder="https://biscuitstudios.com/wp-json/bsrep-receiver/v1/report">
+					<input type="url" class="large-text code" id="bsrep_endpoint_url" name="bsrep_endpoint_url"
+						value="<?php echo esc_attr( get_option( Bsrep_Push::URL_OPTION, Bsrep_Push::DEFAULT_ENDPOINT ) ); ?>"
+						placeholder="<?php echo esc_attr( Bsrep_Push::DEFAULT_ENDPOINT ); ?>">
 				</p>
 				<p class="description">
-					<?php esc_html_e( 'Leave this empty and nothing is sent anywhere. The payload can still be downloaded below.', 'bs-site-report' ); ?>
+					<?php esc_html_e( 'Filled in with Biscuit\'s receiver on a new install. Clear it and save, and nothing is sent anywhere. The payload can still be downloaded below.', 'bs-site-report' ); ?>
 				</p>
 				<?php submit_button( __( 'Save', 'bs-site-report' ) ); ?>
 			</form>

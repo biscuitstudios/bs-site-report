@@ -24,6 +24,14 @@ class Bsrep_Push {
 	const URL_OPTION = 'bsrep_endpoint_url';
 
 	/**
+	 * Where a site sends until someone saves something else. From 0.1.11 a new
+	 * install pushes here without anyone typing it; Jason, November 25, 2026.
+	 * Only used while the option has never been saved: clearing the field and
+	 * saving stores an empty string, which still means send nothing.
+	 */
+	const DEFAULT_ENDPOINT = 'https://biscuitstudios.com/wp-json/bsrep-receiver/v1/report';
+
+	/**
 	 * Option holding the shared secret, used only when BSREP_SECRET is undefined.
 	 */
 	const SECRET_OPTION = 'bsrep_shared_secret';
@@ -78,7 +86,7 @@ class Bsrep_Push {
 			return BSREP_ENDPOINT;
 		}
 
-		return (string) get_option( self::URL_OPTION, '' );
+		return (string) get_option( self::URL_OPTION, self::DEFAULT_ENDPOINT );
 	}
 
 	/**
