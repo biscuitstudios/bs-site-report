@@ -38,6 +38,7 @@ jobs:
           php tests/test-analytics-tables.php
           php tests/test-scanner.php
           php tests/test-accessibility.php
+          php tests/test-seo.php
 
   standards:
     name: Coding standards

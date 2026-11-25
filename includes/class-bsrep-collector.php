@@ -43,6 +43,7 @@ class Bsrep_Collector {
 			'forms'           => ( new Bsrep_Forms() )->collect(),
 			'security'        => ( new Bsrep_Security() )->collect(),
 			'accessibility'   => ( new Bsrep_Accessibility() )->collect(),
+			'seo'             => ( new Bsrep_Seo() )->collect(),
 			'structure'       => $this->structure(),
 		);
 	}

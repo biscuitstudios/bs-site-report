@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.9
+Stable tag: 0.1.10
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,17 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.10 =
+* Added: seo.search_engines_allowed. Reads WordPress's "Discourage search
+  engines" setting (blog_public) and whether SEOPress sets the home page to
+  noindex, with get_option() and get_post_meta() only. SEOPress's own rules are
+  mirrored, not called: the global noindex, the noindex for the front page's
+  post type, the front page's own setting, a password, or the posts page's
+  setting when the front shows latest posts, and only while its Titles and Metas
+  module is on. home_noindex is null when SEOPress is not active. blocked_by
+  names each setting that stops indexing. Anything unreadable is
+  available:false with a reason.
 
 = 0.1.9 =
 * Changed: analytics.top_pages is read from Independent Analytics' own tables,
