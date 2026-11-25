@@ -4,7 +4,7 @@ Tags: reporting, maintenance, analytics, accessibility
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.6
+Stable tag: 0.1.9
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,6 +30,41 @@ configured sends nothing anywhere.
 4. Tools > Biscuit Site Report.
 
 == Changelog ==
+
+= 0.1.9 =
+* Changed: analytics.top_pages is read from Independent Analytics' own tables,
+  counted the way its Pages screen counts, and covers every published page,
+  post and project, the static front page included. 404s, the posts page,
+  archives, author pages, and anything deleted or not published are left out.
+  Status, title, type and permalink are checked against WordPress at collect
+  time in one query. Ranked by views, then visitors, then title; top 10. Rows
+  gain type and url, and the block gains post_types. iawp_top_posts() is no
+  longer called: it covers one post type per call and cannot do this.
+
+= 0.1.8 =
+* Changed: analytics.last_12_months covers the same window as monthly and the
+  0.1.7 blocks, the first of the month eleven months back through today, and
+  says so in from and to. It was a rolling year back from today, six days
+  longer at the start on November 25, 2026.
+* Changed: analytics.prior_12_months is the matching window one year earlier,
+  with from and to, and never shares a day with the current window (on
+  February 29 a year back lands on March 1).
+* Changed: analytics.cities sends the top 25 cities, not 5, ties still broken
+  by city name, so the report can drop data-center towns and still fill its
+  card. Shape and visitors_with_city unchanged.
+
+= 0.1.7 =
+* New: analytics.devices, analytics.cities, analytics.referrers and
+  analytics.ai_referrals are read off Independent Analytics' own tables, read
+  only, and counted the way its own Devices, Cities, Referrers and Referrer
+  Types screens count. Each block carries the window it covers as from and to.
+* Each block is available:false with a reason, never zero, when the IA
+  database version is not one this was written against (53), a migration is
+  running, IA's data pruning has cut into the window, a table is missing or a
+  query fails.
+* Changed: analytics.top_pages now covers the same window as the monthly
+  series (first of the month eleven months back, through today) and says so
+  in from and to. It used a rolling twelve months before, unlabelled.
 
 = 0.1.6 =
 * New: the accessibility section carries images_empty_alt, the open

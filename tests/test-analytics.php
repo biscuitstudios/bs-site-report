@@ -13,8 +13,12 @@
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
 
 function wp_timezone() { return new DateTimeZone( 'UTC' ); }
+// No IA tables here. The table reader's own suite is test-analytics-tables.php;
+// this one only needs it to refuse cleanly, which an unset DB version does.
+function get_option( $k, $d = false ) { return $d; }
 
 require_once dirname( __DIR__ ) . '/includes/class-bsrep-analytics.php';
+require_once dirname( __DIR__ ) . '/includes/class-bsrep-analytics-tables.php';
 
 $fail = 0;
 function check( $label, $got, $want ) {
@@ -76,7 +80,9 @@ check( 'available', $got['available'] ?? null, true );
 check( 'monthly series has one entry per month', count( $got['monthly'] ), 2 );
 check( 'views are read from the vendor', $got['monthly'][0]['views'], 10 );
 check( 'visitors are read from the vendor', $got['monthly'][0]['visitors'], 4 );
-check( 'ai_referrals stays honestly unavailable', $got['ai_referrals']['available'], false );
+check( 'ai_referrals without readable tables is unavailable, not zero', $got['ai_referrals']['available'], false );
+check( 'and it says why', (bool) strpos( $got['ai_referrals']['reason'], 'database version' ), true );
+check( 'views survive the table reader refusing', $got['monthly'][1]['views'], 10 );
 
 echo "\n";
 if ( $fail ) {

@@ -2,15 +2,14 @@
 /**
  * Independent Analytics adapter.
  *
- * Uses only the three documented PHP functions the plugin exposes. It does not
- * read Independent Analytics' own database tables, which would break silently
- * the first time they change their schema, and which cuts against "Never query
- * the database directly" in THEME-RULES.md.
+ * The monthly series and the two headline windows come from IA's documented
+ * PHP function iawp_analytics().
  *
- * The consequence is that everything not covered by those three functions is
- * reported as unavailable with a reason, rather than guessed at. The two that
- * matter, AI referral traffic and traffic sources, are the reason to ask the
- * vendor for a supported route.
+ * Devices, cities, referrers and AI referrals are not in that API. From 0.1.7
+ * they are read off Independent Analytics' own tables, read only, by
+ * Bsrep_Analytics_Tables. Jason changed the rule on November 25, 2026; until
+ * then the tables were off limits and those blocks reported unavailable.
+ * top_pages joined them in 0.1.9, replacing iawp_top_posts().
  *
  * @package BiscuitSiteReport
  */
@@ -76,7 +75,7 @@ class Bsrep_Analytics {
 	 */
 	protected function collect_from_vendor( $months ) {
 		$timezone = wp_timezone();
-		$now      = new DateTimeImmutable( 'now', $timezone );
+		$now      = $this->now( $timezone );
 
 		$series  = array();
 		$totals  = array(
@@ -107,32 +106,68 @@ class Bsrep_Analytics {
 			$totals['sessions'] += $month['sessions'];
 		}
 
-		$year_start  = $now->modify( '-12 months' );
-		$prior_start = $now->modify( '-24 months' );
-		$prior_end   = $year_start->modify( '-1 day' );
+		// The window every 0.1.7 block reports on: the first of the month the
+		// monthly series starts on, through today. Same window as `monthly`.
+		$window_from = $now->modify( 'first day of -' . ( $months - 1 ) . ' month' )->setTime( 0, 0, 0 );
+		$window_to   = $now;
+
+		// From 0.1.8 last_12_months is that same window, and prior_12_months is the
+		// matching window a year earlier. Up to 0.1.7 both were rolling (now minus
+		// 12 months, and the 12 before), six days off the monthly series on
+		// November 25, 2026. Jason, November 25, 2026: "Yes line them up."
+		//
+		// The prior end is today's date a year back, but never on or after the
+		// current window's first day. On February 29 a year back lands on March 1,
+		// which can be that first day, and the two windows would share it.
+		$prior_from = $window_from->modify( '-1 year' );
+		$prior_to   = $now->modify( '-1 year' );
+		$last_day   = $window_from->modify( '-1 day' );
+
+		if ( $prior_to->format( 'Y-m-d' ) > $last_day->format( 'Y-m-d' ) ) {
+			$prior_to = $last_day;
+		}
 
 		return array(
 			'available'      => true,
-			'source'         => 'Independent Analytics public PHP API, iawp_analytics() and iawp_top_posts()',
+			'source'         => 'Independent Analytics public PHP API, iawp_analytics(), for monthly, last_12_months and prior_12_months. The other blocks carry their own source.',
 			'timezone'       => $timezone->getName(),
 			'monthly'        => $series,
-			'last_12_months' => $this->window( $year_start, $now ),
-			'prior_12_months' => $this->window( $prior_start, $prior_end ),
+			'last_12_months' => $this->dated_window( $window_from, $window_to ),
+			'prior_12_months' => $this->dated_window( $prior_from, $prior_to ),
 			'totals_of_series' => $totals,
-			'top_pages'      => $this->top_pages(),
-			'ai_referrals'   => array(
-				'available' => false,
-				'reason'    => 'Independent Analytics attributes referrals to AI platforms in its own dashboard but does not expose referrers through iawp_analytics(), iawp_singular_analytics() or iawp_top_posts(). Reading their tables directly was rejected. Open with the vendor.',
-			),
-			'referrers'      => array(
-				'available' => false,
-				'reason'    => 'Same as ai_referrals. No supported route.',
-			),
+		) + $this->tables( $window_from, $window_to ) + array(
 			'countries'      => array(
 				'available' => false,
 				'reason'    => 'Not in the public PHP API. Use the Kinsta top-countries endpoint instead, which is tested and works.',
 			),
 		);
+	}
+
+	/**
+	 * The current time in the site's timezone. A method so tests can fix it.
+	 *
+	 * @param DateTimeZone $timezone Site timezone.
+	 * @return DateTimeImmutable
+	 */
+	protected function now( DateTimeZone $timezone ) {
+		return new DateTimeImmutable( 'now', $timezone );
+	}
+
+	/**
+	 * window(), with the days it covers stated as from and to.
+	 *
+	 * iawp_analytics() widens both ends to whole days in the site's timezone
+	 * (Exact_Date_Range), so these dates are the dates IA counted.
+	 *
+	 * @param DateTimeInterface $from First day.
+	 * @param DateTimeInterface $to   Last day.
+	 * @return array{from:string,to:string,views:int,visitors:int,sessions:int}
+	 */
+	protected function dated_window( DateTimeInterface $from, DateTimeInterface $to ) {
+		return array(
+			'from' => $from->format( 'Y-m-d' ),
+			'to'   => $to->format( 'Y-m-d' ),
+		) + $this->window( $from, $to );
 	}
 
 	/**
@@ -156,48 +191,41 @@ class Bsrep_Analytics {
 	}
 
 	/**
-	 * Top pages by views over the last twelve months.
+	 * Top pages, devices, cities, referrers and AI referrals off IA's own tables.
 	 *
+	 * top_pages moved here in 0.1.9. iawp_top_posts() returns one post type per
+	 * call and only singular items, sorted by views with no tie-break, and the
+	 * card needs pages, posts and projects together with deleted and unpublished
+	 * posts left out.
+	 *
+	 * Bsrep_Analytics_Tables guards and degrades each block on its own, so one bad
+	 * table costs one card, not the section.
+	 *
+	 * @param DateTimeInterface $from First day.
+	 * @param DateTimeInterface $to   Last day.
 	 * @return array
 	 */
-	protected function top_pages() {
-		if ( ! function_exists( 'iawp_top_posts' ) ) {
-			return array(
+	protected function tables( DateTimeInterface $from, DateTimeInterface $to ) {
+		// Contained here too, so a failure building the reader costs these four
+		// blocks and never the views and visitors that came from the PHP API.
+		try {
+			return ( new Bsrep_Analytics_Tables( $from, $to ) )->collect();
+		} catch ( \Throwable $e ) {
+			$down = array(
 				'available' => false,
-				'reason'    => 'iawp_top_posts() is not defined.',
+				'reason'    => 'Reading Independent Analytics tables failed: ' . get_class( $e ) . ': ' . $e->getMessage()
+					. '. Nothing is reported for this block rather than reporting zero.',
+				'from'      => $from->format( 'Y-m-d' ),
+				'to'        => $to->format( 'Y-m-d' ),
+			);
+			return array(
+				'top_pages'    => $down,
+				'devices'      => $down,
+				'cities'       => $down,
+				'referrers'    => $down,
+				'ai_referrals' => $down,
 			);
 		}
-
-		$timezone = wp_timezone();
-		$to       = new DateTimeImmutable( 'now', $timezone );
-		$from     = $to->modify( '-12 months' );
-
-		$rows = iawp_top_posts(
-			array(
-				'limit' => 10,
-				'from'  => $this->as_datetime( $from ),
-				'to'    => $this->as_datetime( $to ),
-			)
-		);
-
-		$out = array();
-
-		foreach ( (array) $rows as $row ) {
-			$row = is_object( $row ) ? get_object_vars( $row ) : (array) $row;
-
-			$out[] = array(
-				'id'       => (int) ( $row['id'] ?? 0 ),
-				'title'    => (string) ( $row['title'] ?? '' ),
-				'views'    => (int) ( $row['views'] ?? 0 ),
-				'visitors' => (int) ( $row['visitors'] ?? 0 ),
-				'sessions' => (int) ( $row['sessions'] ?? 0 ),
-			);
-		}
-
-		return array(
-			'available' => true,
-			'rows'      => $out,
-		);
 	}
 
 	/**
